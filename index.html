@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head>
+<title>brief-annotator</title>
+<script src=lib/xlsx.mini.min.js></script>
+<link rel="stylesheet" type="text/css" href="style.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📔 </text></svg>">
+<meta charset=utf-8>
+</head>
+<body>
+
+<nav></nav>
+
+<div id=main>
+  <div id=no-data>
+    <img src=excel.svg>
+    <p>Drag and drop an Excel spreadsheet onto this page to begin.</p>
+  </div>
+  <div id=current-table>
+  </div>
+</div>
+
+<script type=module src=src/app.js></script>
+</body>
+</html>
