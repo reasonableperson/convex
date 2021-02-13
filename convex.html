@@ -1,0 +1,190 @@
+<html>
+<head>
+<title>convex</title>
+<script src="xlsx.mini.min.js" type="text/javascript"></script>
+<script src="moment.min.js"></script>
+<style>
+html, body, iframe { margin: 0; border: 0 }
+
+.tags span { background: darkslateblue; color: white; border-radius: 1em; padding: 0.5em 1em; margin: 0 0.1em }
+
+body { display: grid; height: 100%;
+	grid-template-areas: "nav list detail"
+                         "nav list preview";
+	grid-template-columns: fit-content(20%) fit-content(40%) 1fr;
+	grid-template-rows: 20em 1fr }
+
+nav { grid-area: nav; resize: horizontal; overflow: hidden; min-width: 10em; border-right: 1px #999 solid; box-shadow: 1em 1em 1em #ddd; padding: 0.5em; position: relative }
+nav h3 { margin: 0 }
+nav label { display: block; margin-left: 0.5em }
+
+#list { grid-area: list; overflow: auto; resize: horizontal }
+#list table { margin: 1em; border-collapse: collapse }
+#list th { padding: 0.2em; border: 1px #aaa solid }
+#list td { max-height: 10em; border: 1px #aaa solid }
+#list tr:nth-of-type(even) { background: #eee }
+
+#detail { grid-area: detail; border-bottom: 1px #aaa solid; overflow-y: scroll; position: relative; border-left: 1px #aaa solid; padding: 0.5em }
+#detail p { margin: 0 0 0.5em 0 }
+#detail label { font-weight: bold; margin-right: 0.5em }
+
+#preview { grid-area: preview; overflow: auto; position: relative; border-left: 1px #aaa solid }
+#preview iframe { width: 100%; height: 100% }
+
+button.close, button.toggle { font-size: large; position: absolute; right: 0.5em; top: 0.5em }
+button.column-settings { margin-left: 0.2em }
+nav p, #list p, #preview p { margin: 0; padding: 0.5em }
+
+</style>
+</head>
+<body>
+
+<nav>
+	<button class=toggle>&laquo;</button>
+	<h2 id=upload>upload</h2>
+	<input type=file>
+	<h2>create</h2>
+	<input><button>new</button>
+</nav>
+
+<div id=list>
+	<p>Not displaying any dataset.</p>
+	<!--<form><input type=file></form>-->
+</div>
+
+<div id="detail">
+	<button class=close>&times;</button>
+	<div></div>
+</div>
+
+<div id=preview>
+	<button class=close>&times;</button>
+	<iframe></iframe>
+</div>
+
+<script>
+
+// references
+
+const [$nav, $list, $detail, $preview] = ['nav', '#list', '#detail', '#preview iframe']
+	.map(id => document.querySelector(id))
+
+class Storage {
+	constructor() {
+		this.load()
+	}
+	load() {
+		const json = localStorage.getItem('convex')
+		if (json && json !== '[]') {
+			try {
+				console.log(`parsing ${json.length} bytes of json`)
+				this.data = JSON.parse(json)
+			}
+			catch (error) { reject(`Unable to parse JSON from localStorage: "${json}"`) }
+		}
+	}
+	save() {
+		const json = JSON.stringify(this.data)
+		console.log(`saving ${json.length} bytes of json`)
+		localStorage.setItem('convex', json)
+	}
+}
+
+const $storage = new Storage()
+
+// functions
+
+const make = (tag, content, attrs) => {
+	const el = document.createElement(tag)
+	if (Array.isArray(content)) content.forEach(c => el.appendChild(c))
+	else if (content) el.innerText = content
+	if (attrs) Object.keys(attrs).forEach(attr => el[attr] = attrs[attr])
+	return el
+}
+
+const renderList = (data, name) => {
+	const allColumns = data[name].rows
+		.reduce((acc, cur) => acc.concat(Object.keys(cur).filter(key => !acc.includes(key))), [])
+	$nav.insertBefore(ColumnSelector(name, data[name].columns, allColumns), $nav.querySelector('#upload'))
+	$list.appendChild(Table(data[name].columns, data[name].rows.slice(0,100)))
+	$list.querySelector('p').innerText = `Displaying ${data[name].rows.length} records from dataset ${name}.`
+}
+
+const renderPreview = tr => {
+	$preview.src = tr.querySelector('td a').href
+	const div = make('div', Array.from(tr.childNodes).map((cell, i) =>
+		make('p', [
+			make('label', $list.querySelector(`th:nth-child(${i+1})`).innerText),
+			document.createTextNode(cell.innerText)
+		])
+	))
+	$detail.querySelector('div').remove()
+	$detail.appendChild(div)
+	
+}
+
+// components
+
+const Table = (columns, rows) => make('table', [
+	make('thead', [make('tr', columns.map(col => make('th', col)))]),
+	make('tbody', rows.map(row => make('tr', Object.entries(row).map(Cell))))
+])
+
+const Cell = ([name, value]) => {
+	if (name.includes('Summary') || name.includes('Comments'))
+		return make('td', null, {innerHTML: value})
+	if (name.includes('Date') || name.includes('Tranche')) {
+		//console.log(name, 'time', value)
+		return make('td', moment(value).format('llll'))
+		}
+	if (name === 'Document ID')
+		return make('td', [DocumentID(value)])
+	else
+		return make('td', value)
+}
+
+const ColumnSelector = (name, showColumns, allColumns) => make('div', [
+	make('h3', name), 
+	...allColumns.map(name =>
+		make('label', [
+			make('input', null, {
+				name: name, type: 'checkbox', checked: showColumns.includes(name),
+				onchange: event => {
+					const displayStyle = event.target.checked ? 'table-cell' : 'none'
+					const index = Array.from($nav.querySelectorAll('input')).indexOf(event.target)
+					console.log(event, `${event.target.checked}: setting column ${index} to displayStyle ${displayStyle}`)
+					document.querySelectorAll(`tr > :nth-child(${index + 1})`)
+						.forEach(el => el.style.display = displayStyle)
+				}
+			}),
+			document.createTextNode(name),
+			make('button', '...', {className: 'column-settings'})
+		]))
+	])
+
+const DocumentID = value => {
+	const anchor = make('a', value, {href: `Documents/${value}.pdf`})
+	anchor.onclick = e => { e.preventDefault(); renderPreview(e.target.closest('tr')) }
+	return anchor
+}
+
+// init
+
+/*document.querySelector('input[type=file]').onchange = async (event) => {
+	data = await event.target.files[0].arrayBuffer()
+	data = XLSX.read(data, {type: 'array', cellDates: true})
+	data = XLSX.utils.sheet_to_json(Object.values(data.Sheets)[0])
+	localStorage.setItem('convex', JSON.stringify(data))
+	init(data)
+}*/
+
+// prevent resize handler failing when mouse enters iframe
+$list.onmousedown = () => $preview.style.pointerEvents = 'none'
+$list.onmouseup = () => $preview.style.pointerEvents = 'auto'
+
+renderList($storage.data, 'test')
+document.querySelector('#list tbody tr:first-child td:first-child a').click()
+
+</script>
+</body>
+</html>
