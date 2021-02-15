@@ -3,28 +3,46 @@
 <title>convex</title>
 <script src="xlsx.mini.min.js" type="text/javascript"></script>
 <script src="moment.min.js"></script>
+<script src="idb.min.js"></script>
 <style>
 html, body, iframe { margin: 0; border: 0 }
 
 .tags span { background: darkslateblue; color: white; border-radius: 1em; padding: 0.5em 1em; margin: 0 0.1em }
 
 body { display: grid; height: 100%;
-	grid-template-areas: "nav list detail"
-                         "nav list preview";
+	grid-template-areas: "nav main detail";
+	grid-template-columns: fit-content(20%) 1fr 0
+}
+body.threecol {
 	grid-template-columns: fit-content(20%) fit-content(40%) 1fr;
-	grid-template-rows: 20em 1fr }
+	transition: all 1s ease-out;
+}
+
+.hidden { display: none }
 
 nav { grid-area: nav; resize: horizontal; overflow: hidden; min-width: 10em; border-right: 1px #999 solid; box-shadow: 1em 1em 1em #ddd; padding: 0.5em; position: relative }
+nav h1 { margin: 0 }
 nav h3 { margin: 0 }
 nav label { display: block; margin-left: 0.5em }
 
-#list { grid-area: list; overflow: auto; resize: horizontal }
-#list table { margin: 1em; border-collapse: collapse }
-#list th { padding: 0.2em; border: 1px #aaa solid }
-#list td { max-height: 10em; border: 1px #aaa solid }
-#list tr:nth-of-type(even) { background: #eee }
+nav .table-selector .column-selector { display: none }
+nav .table-selector .active { font-weight: bold }
+nav .table-selector .active .column-selector { display: block; font-weight: normal }
 
-#detail { grid-area: detail; border-bottom: 1px #aaa solid; overflow-y: scroll; position: relative; border-left: 1px #aaa solid; padding: 0.5em }
+#welcome { grid-area: main }
+
+#table { grid-area: main; overflow: scroll; resize: horizontal; padding: 1em; color: blue }
+#table p { margin: 0 0 0.5em 0 }
+#table ul { margin: 0 0 0.5em 0 }
+#table li { margin-bottom: 0.5em }
+#table table { margin: 1em; border-collapse: collapse }
+#table th { padding: 0.2em; border: 1px #aaa solid }
+#table td { max-height: 10em; border: 1px #aaa solid }
+#table tr:nth-of-type(even) { background: #eee }
+
+#detail { display: none }
+#detail { grid-area: detail; border-bottom: 1px #aaa solid; overflow: hidden; position: relative; border-left: 1px #aaa solid; padding: 0.5em }
+#detail.active { display: block; overflow-y: scroll }
 #detail p { margin: 0 0 0.5em 0 }
 #detail label { font-weight: bold; margin-right: 0.5em }
 
@@ -32,6 +50,7 @@ nav label { display: block; margin-left: 0.5em }
 #preview iframe { width: 100%; height: 100% }
 
 button.close, button.toggle { font-size: large; position: absolute; right: 0.5em; top: 0.5em }
+button.delete { font-size: smaller; margin-left: 0.5em }
 button.column-settings { margin-left: 0.2em }
 nav p, #list p, #preview p { margin: 0; padding: 0.5em }
 
@@ -40,57 +59,82 @@ nav p, #list p, #preview p { margin: 0; padding: 0.5em }
 <body>
 
 <nav>
+	<h1><a href=# onclick=handleHomeClick()>convex</a></h1>
 	<button class=toggle>&laquo;</button>
+	<div class=table-selector></div>
 	<h2 id=upload>upload</h2>
 	<input type=file>
 	<h2>create</h2>
-	<input><button>new</button>
+	<form class=newTable>
+		<input name=tableName>
+		<input type=submit>
+	</form>
 </nav>
 
-<div id=list>
-	<p>Not displaying any dataset.</p>
-	<!--<form><input type=file></form>-->
+<div id=welcome class=active>
+	<h1>convex</h1>
+	<p>This is <b>convex</b>, a tool for managing spreadsheets and CSV files in your web
+	browser with IndexedDB. You might find this tool helpful if:</p>
+	<ul>
+		<li>you're searching for a modern alternative to Microsoft Access,</li>
+		<li>you are dealing with datasets that are small enough to keep in memory,</li>
+		<li>you want to model many-to-many relationships that are hard to capture in a spreadsheet,</li>
+		<li>you want to use web-native data types like HTML, audio and video in your database,</li>
+		<li>you want to keep your data offline first,</li>
+		<li>you want a flexible, customisable desktop database that requires (almost) no privileges to install, run and use.</li>
+	</ul>
+	<p>Get started by <a href=#>creating a new object store</a> from scratch, or <a href=#>importing an object store</a> from a CSV or Excel file.</p>
+	<p>Share your work with others by exporting <a href=#>HTML reports</a> or <a href=#>spreadsheets</a>. Collaborate by attaching an optional
+	<a href=#>backend</a> and synchronising your changes over the internet.</p>
 </div>
 
-<div id="detail">
+<div id=table class=hidden>
+	<table></table>
+</div>
+
+<div id=detail class=hidden>
 	<button class=close>&times;</button>
 	<div></div>
+	<table>
+		<thead>
+			<tr>
+				<th>field</th>
+				<th>type</th>
+				<th>value</th>
+			</tr>
+		</thead>
+		<tbody>
+			<tr>
+				<td><input placeholder="new field"></td>
+				<td><select>
+					<option>text</option>
+					<option>rich text</option>
+					<option>date</option>
+					<option>lookup</option>
+				</select></td>
+				<td></td>
+			</tr>
+		</tbody>
+	</table>
 </div>
 
-<div id=preview>
+<div id=preview class=hidden>
 	<button class=close>&times;</button>
 	<iframe></iframe>
 </div>
+
 
 <script>
 
 // references
 
-const [$nav, $list, $detail, $preview] = ['nav', '#list', '#detail', '#preview iframe']
+const [$nav, $welcome, $table, $detail, $preview] = ['nav', '#welcome', '#table', '#detail', '#preview iframe']
 	.map(id => document.querySelector(id))
 
-class Storage {
-	constructor() {
-		this.load()
-	}
-	load() {
-		const json = localStorage.getItem('convex')
-		if (json && json !== '[]') {
-			try {
-				console.log(`parsing ${json.length} bytes of json`)
-				this.data = JSON.parse(json)
-			}
-			catch (error) { reject(`Unable to parse JSON from localStorage: "${json}"`) }
-		}
-	}
-	save() {
-		const json = JSON.stringify(this.data)
-		console.log(`saving ${json.length} bytes of json`)
-		localStorage.setItem('convex', json)
-	}
+const activate = el => {
+	document.querySelector('body > .active').className = 'hidden'
+	el.className = 'active'
 }
-
-const $storage = new Storage()
 
 // functions
 
@@ -102,40 +146,154 @@ const make = (tag, content, attrs) => {
 	return el
 }
 
-const renderList = (data, name) => {
-	const allColumns = data[name].rows
-		.reduce((acc, cur) => acc.concat(Object.keys(cur).filter(key => !acc.includes(key))), [])
-	$nav.insertBefore(ColumnSelector(name, data[name].columns, allColumns), $nav.querySelector('#upload'))
-	$list.appendChild(Table(data[name].columns, data[name].rows.slice(0,100)))
-	$list.querySelector('p').innerText = `Displaying ${data[name].rows.length} records from dataset ${name}.`
+// database
+
+const getTableNames = async () => {
+	var db = await idb.openDB('convex')
+	var result = db.objectStoreNames
+	db.close()
+	return result
 }
 
-const renderPreview = tr => {
+const getTable = async (tableName) => {
+	var db = await idb.openDB('convex')
+	var result = db.getAll(tableName)
+	db.close()
+	return result
+}
+
+const runAsUpgrade = (func) => new Promise(async (resolve, reject) => {
+	var db = await idb.openDB('convex')
+	const newVersion = db.version + 1
+	console.time('time spent waiting for database to close')
+	db.close()
+	console.timeEnd('time spent waiting for database to close')
+	idb.openDB('convex', newVersion, {
+		async upgrade(db) {
+			try {
+				var result = func(db)
+				db.close()
+				resolve(result)
+			} catch(e) {
+				db.close()
+				reject(e)
+			}
+		}
+	})
+})
+
+const addTable = (tableName) => runAsUpgrade(db => {
+	db.createObjectStore(tableName)
+}).then(main, alert)
+
+const deleteTable = (tableName) => runAsUpgrade(db => {
+	db.deleteObjectStore(tableName)
+}).then(main, alert)
+
+// event handlers
+
+const handleTableCreate = async (event) => {
+	event.preventDefault()
+	const tableName = event.target.elements.tableName.value
+	if (tableName) {
+		console.log('adding table', tableName)
+		addTable(tableName)
+	}
+}; document.querySelector('form.newTable').onsubmit = handleTableCreate
+
+const handleTableDelete = event => {
+	const deleteTableName = event.target.parentNode.childNodes[0].innerText
+	window.confirm(`Are you sure you want to delete the table "${deleteTableName}"?`)
+	&& deleteTable(deleteTableName)
+}
+
+const handleTableSelect = async (event) => {
+	event.preventDefault()
+	var data = await getTable(event.target.innerText)
+	const previousSelectedTable = $nav.querySelector('p.active')
+	if (previousSelectedTable == event.target.parentNode) return
+	if (previousSelectedTable) previousSelectedTable.className = ''
+	const selectedTable = event.target.closest('p')
+	selectedTable.className = 'active'
+	console.time(`rendered table ${event.target.innerText} in`)
+	if (data.length > 0) {
+	activate($table)
+		const name = event.target.innerText
+		const allColumns = data
+			.reduce((acc, cur) => acc.concat(Object.keys(cur).filter(key => !acc.includes(key))), [])
+		const columnSelector = ColumnSelector(name, allColumns, allColumns)
+		const previousColumnSelector = selectedTable.querySelector('.column-selector')
+		if (previousColumnSelector)	previousColumnSelector.replaceWith(columnSelector)
+		else selectedTable.appendChild(columnSelector)
+		$table.querySelector('table').replaceWith(Table(allColumns, data) )
+	} else {
+		document.body.classList.add('threecol')
+		$detail.classList.add('active')
+	}
+	console.timeEnd(`rendered table ${event.target.innerText} in`)
+}
+
+const handleDetailSelect = tr => {
 	$preview.src = tr.querySelector('td a').href
 	const div = make('div', Array.from(tr.childNodes).map((cell, i) =>
 		make('p', [
-			make('label', $list.querySelector(`th:nth-child(${i+1})`).innerText),
+			make('label', $table.querySelector(`th:nth-child(${i+1})`).innerText),
 			document.createTextNode(cell.innerText)
 		])
 	))
+	document.body.classList.add('threecol')
+	$detail.className = 'active'
 	$detail.querySelector('div').remove()
 	$detail.appendChild(div)
-	
 }
+
+const handleColumnToggle = event => {
+	const displayStyle = event.target.checked ? 'table-cell' : 'none'
+	const index = Array.from($nav.querySelectorAll('input')).indexOf(event.target)
+	document.querySelectorAll(`tr > :nth-child(${index + 1})`)
+		.forEach(el => el.style.display = displayStyle)
+}
+
+const handleHomeClick = event => {
+	activate($welcome)
+}
+
+const handleClosePreview = () => {
+	$table.style.width = ''
+	$detail.classList.remove('active')
+	document.body.classList.remove('threecol')
+}
+document.querySelector('#detail .close').onclick = handleClosePreview
+
+// prevent resize handler failing when mouse enters iframe
+$table.onmousedown = () => $preview.style.pointerEvents = 'none'
+$table.onmouseup = () => $preview.style.pointerEvents = 'auto'
 
 // components
 
+const TableSelector = tableNames => {
+	return make('div', Array.from(tableNames).map(name => make('p', [
+		make('a', name, {href: '#', onclick: handleTableSelect}),
+		make('button', '🗑️', {className: 'delete', onclick: handleTableDelete})
+	])), {className: 'table-selector'})
+}
+
 const Table = (columns, rows) => make('table', [
 	make('thead', [make('tr', columns.map(col => make('th', col)))]),
-	make('tbody', rows.map(row => make('tr', Object.entries(row).map(Cell))))
+	make('tbody', rows.map(row => make('tr', columns.map(col => Cell(col, row[col])))))
 ])
 
-const Cell = ([name, value]) => {
+const DetailTable = (columns, row) => make('table', [
+	make('tbody', columns.map(col => make('tr', [Cell(col, row[col])])))
+])
+
+const Cell = (name, value) => {
 	if (name.includes('Summary') || name.includes('Comments'))
 		return make('td', null, {innerHTML: value})
 	if (name.includes('Date') || name.includes('Tranche')) {
 		//console.log(name, 'time', value)
-		return make('td', moment(value).format('llll'))
+		return make('td', value)
+		//return make('td', moment(value).format('llll'))
 		}
 	if (name === 'Document ID')
 		return make('td', [DocumentID(value)])
@@ -143,28 +301,21 @@ const Cell = ([name, value]) => {
 		return make('td', value)
 }
 
-const ColumnSelector = (name, showColumns, allColumns) => make('div', [
-	make('h3', name), 
-	...allColumns.map(name =>
+const ColumnSelector = (name, showColumns, allColumns) => make('div',
+	allColumns.map(name =>
 		make('label', [
 			make('input', null, {
 				name: name, type: 'checkbox', checked: showColumns.includes(name),
-				onchange: event => {
-					const displayStyle = event.target.checked ? 'table-cell' : 'none'
-					const index = Array.from($nav.querySelectorAll('input')).indexOf(event.target)
-					console.log(event, `${event.target.checked}: setting column ${index} to displayStyle ${displayStyle}`)
-					document.querySelectorAll(`tr > :nth-child(${index + 1})`)
-						.forEach(el => el.style.display = displayStyle)
-				}
+				onchange: handleColumnToggle
 			}),
 			document.createTextNode(name),
 			make('button', '...', {className: 'column-settings'})
-		]))
-	])
+		])),
+	{className: 'column-selector'})
 
 const DocumentID = value => {
 	const anchor = make('a', value, {href: `Documents/${value}.pdf`})
-	anchor.onclick = e => { e.preventDefault(); renderPreview(e.target.closest('tr')) }
+	anchor.onclick = e => { e.preventDefault(); handleDetailSelect(e.target.closest('tr')) }
 	return anchor
 }
 
@@ -178,12 +329,13 @@ const DocumentID = value => {
 	init(data)
 }*/
 
-// prevent resize handler failing when mouse enters iframe
-$list.onmousedown = () => $preview.style.pointerEvents = 'none'
-$list.onmouseup = () => $preview.style.pointerEvents = 'auto'
-
-renderList($storage.data, 'test')
-document.querySelector('#list tbody tr:first-child td:first-child a').click()
+const main = async () => {
+	const $tables = await getTableNames()
+	$nav.querySelector('.table-selector').replaceWith(TableSelector($tables))
+	Array.from($nav.querySelectorAll('.table-selector a'))
+		//.find(el => el.innerText == 'Propositions').click()
+}
+main()
 
 </script>
 </body>
